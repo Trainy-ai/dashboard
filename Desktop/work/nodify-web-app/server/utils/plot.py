@@ -9,13 +9,12 @@ from functools import partial
 
 from hta.utils.utils import merge_kernel_intervals
 
-from nodify_plugin.utils.dataframe import prepare_df
-from nodify_plugin.utils.range import (
+from utils.dataframe import prepare_df
+from utils.range import (
     subtract_ranges_lists,
     fraction_uncovered,
 )
 
-import plotly
 import plotly.express as px
 
 def binned_percent_usage(df, bins=30):

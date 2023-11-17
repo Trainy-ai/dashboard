@@ -8,22 +8,20 @@ import numpy as np
 import pandas as pd
 import os
 import json
-import sys
 
 from functools import cache
-from datetime import datetime
 
 import plotly
 import plotly.express as px
+import sys
 
-from tensorboard.plugins import base_plugin
 
 import socket
 
 ## getting the hostname by socket.gethostname() method
 hostname = socket.gethostname()
 
-from nodify_plugin.utils.plot import (
+from utils.plot import (
     heatmap,
     time_between_barriers_start,
     time_between_barriers_start2end,
@@ -39,22 +37,25 @@ headers = [("X-Content-Type-Options", "nosniff")]
 app = Flask(__name__)
 CORS(app)
 
-logdir = ""
-trace_analyzer = None
+all_trace_analyzers = {}
 
+a = os.listdir('/')
+
+b = os.listdir('/traces/')
+
+print(a)
+print(b)
+
+"""
+for item in os.listdir("/traces/"):
+    newItem = os.path.join("/traces/", item)
+    all_trace_analyzers[item] = TraceAnalysis(trace_dir=newItem)
+"""
+"""
 class ActiveTrace:
-
     logdir = "/traces/"
     trace_analyzer = TraceAnalysis(trace_dir=logdir)
     trace_analysis = os.listdir(logdir)[0]
-
-"""
-if len(sys.argv) > 1:
-    argument = sys.argv[1]
-    logdir = os.path.abspath(argument.rstrip("/"))
-else:
-    print("No command-line argument provided.")
-    quit
 
 try:
     trace_analyzer = TraceAnalysis(trace_dir=logdir)
@@ -64,19 +65,26 @@ except ValueError as e:
     )
 """
 
-@app.route('/num_ranks')
+@app.route('/traces', methods=['GET'])
+def traces_route():
+    traces = os.listdir("/traces/")
+    return json.dumps({"traces": traces})
+
+@app.route('/num_ranks', methods=['GET'])
 def num_ranks_route():
-    num_ranks = len(trace_analyzer.t.traces)
+    folder = request.args.get('folder')
+    num_ranks = len(all_trace_analyzers[folder].t.traces)
     return json.dumps({"num_ranks": num_ranks})
 
-@app.route('/idle_time')
+@app.route('/idle_time', methods=['GET'])
 def idle_time_route():
+    folder = request.args.get('folder')
     rank = request.args.get('rank')
     pct = request.args.get('visualizePct')
     pct_bool = pct == 'true'
 
     # Replace self.trace_analyzer with the instantiated TraceAnalysis object
-    idle_time_df = trace_analyzer.get_idle_time_breakdown(
+    idle_time_df = all_trace_analyzers[folder].get_idle_time_breakdown(
         ranks=[int(rank)], visualize=False, visualize_pctg=pct_bool
     )[0]
 
@@ -107,15 +115,18 @@ def idle_time_route():
     contents = plotly.io.to_json(fig)
     return contents
 
-@app.route('/temporal_dev')
+@app.route('/temporal_dev', methods=['GET'])
 def temporal_dev():
-    time_spent_df = trace_analyzer.get_temporal_breakdown(visualize=False)
+    folder = request.args.get('folder')
+    time_spent_df = all_trace_analyzers[folder].get_temporal_breakdown(visualize=False)
     contents = time_spent_df.to_json()
     return contents
 
-@app.route('/temporal')
+@app.route('/temporal', methods=['GET'])
 def temporal_breakdown_route():
-    time_spent_df = trace_analyzer.get_temporal_breakdown(visualize=False)
+
+    folder = request.args.get('folder')
+    time_spent_df = all_trace_analyzers[folder].get_temporal_breakdown(visualize=False)
     fig = px.bar(
         time_spent_df,
         x="rank",
@@ -131,13 +142,14 @@ def temporal_breakdown_route():
     contents = plotly.io.to_json(fig)
     return contents
 
-@app.route('/kernel')
+@app.route('/kernel', methods=['GET'])
 def kernel_route():
+    folder = request.args.get('folder')
     # TODO: Refactor this to split the dataframe logic from the plotting logic for the later plots
     (
         kernel_type_df,
         kernel_metrics_df,
-    ) = trace_analyzer.get_gpu_kernel_breakdown(visualize=False)
+    ) = all_trace_analyzers[folder].get_gpu_kernel_breakdown(visualize=False)
     non_zero_kernel_df = kernel_type_df[(kernel_type_df["percentage"] > 0)]
 
     fig = px.pie(
@@ -156,12 +168,12 @@ def kernel_route():
     contents = plotly.io.to_json(fig)
     return contents
 
-@app.route('/consistency_AllReduce_start2start')
+@app.route('/consistency_AllReduce_start2start', methods=['GET'])
 def consistency_AllReduce_start2start_route():
-    
+    folder = request.args.get('folder')
 
     df = time_between_barriers_start(
-        trace_analyzer.t, comm_id="ncclKernel_AllReduce"
+        all_trace_analyzers[folder].t, comm_id="ncclKernel_AllReduce"
     )
     fig = box_plot(
         df,
@@ -175,12 +187,12 @@ def consistency_AllReduce_start2start_route():
     contents = plotly.io.to_json(fig)
     return contents
 
-@app.route('/consistency_ReduceScatter_start2start')
+@app.route('/consistency_ReduceScatter_start2start', methods=['GET'])
 def consistency_ReduceScatter_start2start_route():
-
+    folder = request.args.get('folder')
 
     df = time_between_barriers_start(
-        trace_analyzer.t, comm_id="ncclKernel_ReduceScatter"
+        all_trace_analyzers[folder].t, comm_id="ncclKernel_ReduceScatter"
     )
     fig = box_plot(
         df,
@@ -194,12 +206,12 @@ def consistency_ReduceScatter_start2start_route():
     contents = plotly.io.to_json(fig)
     return contents
 
-@app.route('/consistency_AllGather_start2start')
+@app.route('/consistency_AllGather_start2start', methods=['GET'])
 def consistency_AllGather_start2start_route():
-    
+    folder = request.args.get('folder')
 
     df = time_between_barriers_start(
-        trace_analyzer.t, comm_id="ncclKernel_AllGather"
+        all_trace_analyzers[folder].t, comm_id="ncclKernel_AllGather"
     )
     fig = box_plot(
         df,
@@ -213,12 +225,12 @@ def consistency_AllGather_start2start_route():
     contents = plotly.io.to_json(fig)
     return contents
 
-@app.route('/consistency_AllReduce_start2end')
+@app.route('/consistency_AllReduce_start2end', methods=['GET'])
 def consistency_AllReduce_start2end_route():
-    
+    folder = request.args.get('folder')
 
     df = time_between_barriers_start2end(
-        trace_analyzer.t, comm_id="ncclKernel_AllReduce"
+        all_trace_analyzers[folder].t, comm_id="ncclKernel_AllReduce"
     )
     fig = box_plot(
         df,
@@ -232,12 +244,12 @@ def consistency_AllReduce_start2end_route():
     contents = plotly.io.to_json(fig)
     return contents
 
-@app.route('/consistency_ReduceScatter_start2end')
+@app.route('/consistency_ReduceScatter_start2end', methods=['GET'])
 def consistency_ReduceScatter_start2end_route():
-    
+    folder = request.args.get('folder')
 
     df = time_between_barriers_start2end(
-        trace_analyzer.t, comm_id="ncclKernel_ReduceScatter"
+        all_trace_analyzers[folder].t, comm_id="ncclKernel_ReduceScatter"
     )
     fig = box_plot(
         df,
@@ -251,12 +263,12 @@ def consistency_ReduceScatter_start2end_route():
     contents = plotly.io.to_json(fig)
     return contents
 
-@app.route('/consistency_AllGather_start2end')
+@app.route('/consistency_AllGather_start2end', methods=['GET'])
 def consistency_AllGather_start2end_route():
-    
+    folder = request.args.get('folder')
 
     df = time_between_barriers_start2end(
-        trace_analyzer.t, comm_id="ncclKernel_AllGather"
+        all_trace_analyzers[folder].t, comm_id="ncclKernel_AllGather"
     )
     fig = box_plot(
         df,
@@ -270,12 +282,12 @@ def consistency_AllGather_start2end_route():
     contents = plotly.io.to_json(fig)
     return contents
 
-@app.route('/progress_AllReduce_start2start')
+@app.route('/progress_AllReduce_start2start', methods=['GET'])
 def progress_AllReduce_start2start_route():
-    
+    folder = request.args.get('folder')
 
     df = time_between_barriers_start(
-        trace_analyzer.t, comm_id="ncclKernel_AllReduce"
+        all_trace_analyzers[folder].t, comm_id="ncclKernel_AllReduce"
     )
     fig = box_plot(
         df,
@@ -289,12 +301,12 @@ def progress_AllReduce_start2start_route():
     contents = plotly.io.to_json(fig)
     return contents
 
-@app.route('/progress_ReduceScatter_start2start')
+@app.route('/progress_ReduceScatter_start2start', methods=['GET'])
 def progress_ReduceScatter_start2start_route():
-    
+    folder = request.args.get('folder')
 
     df = time_between_barriers_start(
-        trace_analyzer.t, comm_id="ncclKernel_ReduceScatter"
+        all_trace_analyzers[folder].t, comm_id="ncclKernel_ReduceScatter"
     )
 
     fig = box_plot(
@@ -309,12 +321,12 @@ def progress_ReduceScatter_start2start_route():
     contents = plotly.io.to_json(fig)
     return contents
 
-@app.route('/progress_AllGather_start2start')
+@app.route('/progress_AllGather_start2start', methods=['GET'])
 def progress_AllGather_start2start_route():
-    
+    folder = request.args.get('folder')
 
     df = time_between_barriers_start(
-        trace_analyzer.t, comm_id="ncclKernel_AllGather"
+        all_trace_analyzers[folder].t, comm_id="ncclKernel_AllGather"
     )
     fig = box_plot(
         df,
@@ -328,12 +340,12 @@ def progress_AllGather_start2start_route():
     contents = plotly.io.to_json(fig)
     return contents
 
-@app.route('/progress_AllReduce_start2end')
+@app.route('/progress_AllReduce_start2end', methods=['GET'])
 def progress_AllReduce_start2end_route():
-    
+    folder = request.args.get('folder')
 
     df = time_between_barriers_start2end(
-        trace_analyzer.t, comm_id="ncclKernel_AllReduce"
+        all_trace_analyzers[folder].t, comm_id="ncclKernel_AllReduce"
     )
     fig = box_plot(
         df,
@@ -347,12 +359,12 @@ def progress_AllReduce_start2end_route():
     contents = plotly.io.to_json(fig)
     return contents
 
-@app.route('/progress_ReduceScatter_start2end')
+@app.route('/progress_ReduceScatter_start2end', methods=['GET'])
 def progress_ReduceScatter_start2end_route():
-    
+    folder = request.args.get('folder')
 
     df = time_between_barriers_start2end(
-        trace_analyzer.t, comm_id="ncclKernel_ReduceScatter"
+        all_trace_analyzers[folder].t, comm_id="ncclKernel_ReduceScatter"
     )
     fig = box_plot(
         df,
@@ -366,12 +378,12 @@ def progress_ReduceScatter_start2end_route():
     contents = plotly.io.to_json(fig)
     return contents
 
-@app.route('/progress_AllGather_start2end')
+@app.route('/progress_AllGather_start2end', methods=['GET'])
 def progress_AllGather_start2end_route():
-    
+    folder = request.args.get('folder')
 
     df = time_between_barriers_start2end(
-        trace_analyzer.t, comm_id="ncclKernel_AllGather"
+        all_trace_analyzers[folder].t, comm_id="ncclKernel_AllGather"
     )
     fig = box_plot(
         df,
@@ -385,11 +397,12 @@ def progress_AllGather_start2end_route():
     contents = plotly.io.to_json(fig)
     return contents
 
-@app.route('/util_heat')
+@app.route('/util_heat', methods=['GET'])
 def util_heat_route():
       # unused
+    folder = request.args.get('folder')
 
-    fraction, bins = heatmap(trace_analyzer.t, bins=30, type="compute")
+    fraction, bins = heatmap(all_trace_analyzers[folder].t, bins=30, type="compute")
     fraction = fraction.reset_index().rename(columns={0: "gpu_util"})
     fig = px.imshow(
         list(fraction["gpu_util"].values),
@@ -408,11 +421,12 @@ def util_heat_route():
     contents = plotly.io.to_json(fig)
     return contents
 
-@app.route('/comm_heat')
+@app.route('/comm_heat', methods=['GET'])
 def comm_heat_route():
       # unused
+    folder = request.args.get('folder')
 
-    fraction, bins = heatmap(trace_analyzer.t, bins=30, type="comm")
+    fraction, bins = heatmap(all_trace_analyzers[folder].t, bins=30, type="comm")
     fraction = fraction.reset_index().rename(columns={0: "gpu_comm"})
     fig = px.imshow(
         list(fraction["gpu_comm"].values),
@@ -431,11 +445,12 @@ def comm_heat_route():
     contents = plotly.io.to_json(fig)
     return contents
 
-@app.route('/mem_heat')
+@app.route('/mem_heat', methods=['GET'])
 def mem_heat_route():
       # unused
+    folder = request.args.get('folder')
 
-    fraction, bins = heatmap(trace_analyzer.t, bins=30, type="mem")
+    fraction, bins = heatmap(all_trace_analyzers[folder].t, bins=30, type="mem")
     fraction = fraction.reset_index().rename(columns={0: "gpu_mem"})
     fig = px.imshow(
         list(fraction["gpu_mem"].values),
@@ -454,13 +469,13 @@ def mem_heat_route():
     contents = plotly.io.to_json(fig)
     return contents
 
-@app.route('/compute_communication_overlap')
+@app.route('/compute_communication_overlap', methods=['GET'])
 @cache
 def compute_communication_overlap_route():
-    
+    folder = request.args.get('folder')
 
     try:
-        result_df = trace_analyzer.get_comm_comp_overlap(visualize=False)
+        result_df = all_trace_analyzers[folder].get_comm_comp_overlap(visualize=False)
         fig = px.bar(
             result_df,
             x="rank",
